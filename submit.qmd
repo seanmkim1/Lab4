@@ -1,28 +1,131 @@
 ---
-title: ""
-author: ""
+title: "Lab 4 Submission"
+author: "Sean Kim"
 format:
   html:
     embed-resources: true
+editor: 
+  markdown: 
+    wrap: 72
 ---
 
-## Quarto
-
-Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
-
-## Running Code
-
-When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
-
 ```{r}
-1 + 1
+
+if (!file.exists("met_all.gz")) 
+  download.file( 
+    url = "https://raw.githubusercontent.com/USCbiostats/data-science-data/master/02_met/met_all.gz", 
+    destfile = "met_all.gz", 
+    method = "libcurl", 
+    timeout = 60 )
+library(data.table)
+library(leaflet)
+library(tidyverse)
+
+met <- data.table::fread("met_all.gz") 
 ```
 
-You can add options to executable code like this
+2.  Preparing the data:
 
-```{r}
-#| echo: false
-2 * 2
-```
+    ```{r}
+    summary(met)
+    met <- met[met$temp > -17][elev == 9999.0, elev:= NA]
+    met[, date := as.Date(paste(year, month, day, sep = "-"))]
 
-The `echo: false` option disables the printing of code (only output is displayed).
+    met.first <- met[data.table::week(date) == 1]
+
+    met_avg <- met[,.(
+      temp = mean(temp,na.rm=TRUE), 
+      rh = mean(rh,na.rm = TRUE), 
+      wind.sp = mean(wind.sp,na.rm=TRUE), 
+      vis.dist = mean(vis.dist,na.rm=TRUE),
+      dew.point = mean(dew.point,na.rm=TRUE), 
+      lat = mean(lat), 
+      lon = mean(lon), 
+      elev = mean(elev,na.rm=TRUE)
+    ), by = c("USAFID", "day")]
+
+    met_avg[, region := ifelse(lon <= -98.00 & lat >= 37.71, "NW", 
+                                ifelse(lon <= -98.00 & lat <39.71, "SW",
+                                       ifelse(lon > -98.00 & lat >= 39.71, "NE", "SE")))]
+
+    met_avg[, elev_cat := ifelse(elev >252, "high", "low")]
+    ```
+
+3.  Use geom_violin to examine wind speed and dew point by region
+
+    ```{r}
+    met_avg[!is.na(elev_cat)] %>% 
+      ggplot()+
+      geom_violin(mapping = aes(x = wind.sp, y = dew.point))+
+      facet_wrap(~region, nrow = 2)
+    ```
+
+4.  Use geom_jitter with stat_smooth to examine the association between
+    dew point and wind speed by region.
+
+    ```{r}
+    ggplot(met_avg, aes(x = dew.point, y = wind.sp))+
+      facet_wrap(~region, nrow = 2)+
+      geom_jitter(width = 0.2, height = 0.2) + 
+      stat_smooth(method = "lm", se = FALSE) + 
+      labs(title = "Association btw Dew Point and Wind Speed by Region", x = "Dew Point", y = "Wind Speed", color = "region") + 
+      theme_bw()
+    ```
+
+increasing dew point was associated with slight increasing wind speed.
+
+5.  Use geom_bar to create barplots of the weather stations by elevation
+    category colored by region
+
+    ```{r}
+    met_avg[!is.na(elev_cat)] %>% 
+      ggplot()+
+      geom_bar(aes(elev_cat, fill = region), position = "dodge") + 
+      labs(title = "Weather stations by Elevation Category, colored by region", 
+           x = "elevation category", 
+           y = "count")
+    ```
+
+6.  Use stat_summary to examine mean dew point and wind speed by region
+    with standard deviation error bars
+
+    ```{r}
+    met_avg[!is.na(elev_cat)] %>% 
+      ggplot()+
+      stat_summary(aes(x = region, y = dew.point), fun.data = "mean_sd1", mult = 1, geom = "bar") + 
+      stat_summary(aes(x = region, y = dew.point), fun.data = "mean_sd1", mult = 1, geom = "errorbar", width = 0.2)+
+      labs(title = "mean dew point by region with stdev error bars",
+           x = "region", 
+           y = "mean dew point")+
+      theme_bw()
+    ```
+
+7.  make a map showing the spatial trend in relative humidity in the us
+
+    ```{r}
+    library(leaflet)
+
+    met<- met[!is.na(rh)]
+    colors <- colorNumeric(palette = "viridis", domain = met$rh)
+    map <- leaflet(data = met) %>%
+      addTiles() %>%
+      addCircleMarkers(~lon, ~lat, radius = 4, color = ~colors(rh),
+                       popup = ~paste("USAFID: ", USAFID, "<br>Relative Humidity: ", rh, "%")) %>%
+      addLegend(pal = colors, values = ~rh, title = "Relative Humidity (%)") %>%
+      addMarkers(data = met[order(-rh)][1:10, ], ~lon, ~lat, label = ~USAFID)
+
+    ```
+
+8.  use a ggplot extension - ggthemes
+
+    ```{r}
+    install.packages("ggthemes")
+    library(ggthemes)
+    ggplot(met_avg, aes(x = region, y = dew.point)) + 
+      geom_violin() + 
+      facet_wrap(~region) + 
+      labs(title = "dew point by region violin plot tufte theme", 
+          x = "region", 
+          y = "dew point")+ 
+      theme_tufte()
+    ```
