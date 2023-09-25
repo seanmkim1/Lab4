@@ -20,6 +20,7 @@ if (!file.exists("met_all.gz"))
 library(data.table)
 library(leaflet)
 library(tidyverse)
+library(lubridate)
 
 met <- data.table::fread("met_all.gz") 
 ```
@@ -31,7 +32,7 @@ met <- data.table::fread("met_all.gz")
     met <- met[met$temp > -17][elev == 9999.0, elev:= NA]
     met[, date := as.Date(paste(year, month, day, sep = "-"))]
 
-    met.first <- met[data.table::week(date) == 1]
+    met.first <- met[day(date) %in% 1:7, ]
 
     met_avg <- met[,.(
       temp = mean(temp,na.rm=TRUE), 
@@ -90,14 +91,21 @@ increasing dew point was associated with slight increasing wind speed.
     with standard deviation error bars
 
     ```{r}
-    met_avg[!is.na(elev_cat)] %>% 
-      ggplot()+
-      stat_summary(aes(x = region, y = dew.point), fun.data = "mean_sd1", mult = 1, geom = "bar") + 
-      stat_summary(aes(x = region, y = dew.point), fun.data = "mean_sd1", mult = 1, geom = "errorbar", width = 0.2)+
-      labs(title = "mean dew point by region with stdev error bars",
-           x = "region", 
-           y = "mean dew point")+
-      theme_bw()
+    ggplot(met_avg, aes(x = region, y = dew.point)) +
+      stat_summary(fun.data = "mean_sdl", mult = 1, geom = "bar") +
+      stat_summary(fun.data = "mean_sdl", mult = 1, geom = "errorbar", width = 0.2) +
+      labs(title = "Mean Dew Point by Region with Standard Deviation Error Bars",
+           x = "Region",
+           y = "Mean Dew Point") +
+      theme_minimal()
+
+    ggplot(met_avg, aes(x = region, y = wind.sp))+
+      stat_summary(fun.data = "mean_sdl", mult = 1, geom = "bar") + 
+      stat_summary(fun.data = "mean_sdl", mult = 1, geom = "errorbar", width = 0.2) + 
+      labs( title = "Mean Wind Speed by Region with Standard Deviation Error Bars", 
+            x = "Region",
+            y = "Mean Wind Speed")+
+      theme_minimal()
     ```
 
 7.  make a map showing the spatial trend in relative humidity in the us
@@ -119,7 +127,6 @@ increasing dew point was associated with slight increasing wind speed.
 8.  use a ggplot extension - ggthemes
 
     ```{r}
-    install.packages("ggthemes")
     library(ggthemes)
     ggplot(met_avg, aes(x = region, y = dew.point)) + 
       geom_violin() + 
